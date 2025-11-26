@@ -99,5 +99,3 @@ Password: `admin`
 * Debezium captures inserts, updates, and deletes in real-time.
 * JSON files in `/cdc_output` can later be pushed to S3 or other data sinks.
 * `pagila-schema.sql` and `pagila-insert-data.sql` initialize the database with sample data.
-
-````
