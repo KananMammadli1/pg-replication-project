@@ -1,0 +1,136 @@
+name: pg-replication-project
+
+services:
+  # ============================
+  # 1) POSTGRES PUBLISHER
+  # ============================
+  pub:
+    image: postgres:15
+    container_name: pg_publisher
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: pagila
+    ports:
+      - "5433:5432"
+    networks:
+      - pgnet
+    restart: always
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+    volumes:
+      - ./pagila-schema.sql:/docker-entrypoint-initdb.d/pagila-schema.sql
+      - ./pagila-insert-data.sql:/docker-entrypoint-initdb.d/pagila-insert-data.sql
+
+  # ============================
+  # 2) ZOOKEEPER
+  # ============================
+  zookeeper:
+    image: debezium/zookeeper:2.4
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    networks:
+      - pgnet
+    restart: always
+
+  # ============================
+  # 3) KAFKA BROKER
+  # ============================
+  kafka:
+    image: debezium/kafka:2.4
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    networks:
+      - pgnet
+    restart: always
+    depends_on:
+      - zookeeper
+    environment:
+      ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_BROKER_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  # ============================
+  # 4) DEBEZIUM SERVER (Kafka sink)
+  # ============================
+  debezium:
+    image: debezium/server:2.4
+    container_name: cdc_server
+    depends_on:
+      - pub
+      - kafka
+    networks:
+      - pgnet
+    volumes:
+      - ./application.properties:/debezium/conf/application.properties
+      - cdc_data:/debezium/data
+
+  # ============================
+  # 5) KAFKA CONSUMER → FILE WRITER
+  # ============================
+  kafka-consumer:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka_to_file
+    depends_on:
+      - kafka
+    networks:
+      - pgnet
+    volumes:
+      - ./cdc_output:/output
+      - ./consumer-script.sh:/consumer-script.sh
+    command: /bin/bash /consumer-script.sh
+    restart: always
+
+  # ============================
+  # 6) POSTGRES SUBSCRIBER
+  # ============================
+  sub:
+    image: postgres:15
+    container_name: pg_subscriber
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: pagila
+    ports:
+      - "5434:5432"
+    networks:
+      - pgnet
+    restart: always
+    volumes:
+      - ./pagila-schema.sql:/docker-entrypoint-initdb.d/pagila-schema.sql
+      - ./cdc_output:/output  # Kafka consumer-dan gələn JSON faylı subscriber container-də
+      - ./load_actor.sh:/load_actor.sh 
+
+  # ============================
+  # 7) PGADMIN UI
+  # ============================
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin_ui
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    networks:
+      - pgnet
+    restart: always
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+networks:
+  pgnet:
+    driver: bridge
+
+volumes:
+  cdc_data:
+  pgadmin_data:
