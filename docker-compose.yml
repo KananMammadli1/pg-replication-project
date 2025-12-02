@@ -1,5 +1,3 @@
-name: pg-replication-project
-
 services:
   # ============================
   # 1) POSTGRES PUBLISHER
@@ -60,9 +58,9 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
   # ============================
-  # 4) DEBEZIUM SERVER (Kafka sink)
+  # 4) DEBEZIUM SERVER (standalone mode)
   # ============================
-  debezium:
+  cdc_server:
     image: debezium/server:2.4
     container_name: cdc_server
     depends_on:
@@ -73,11 +71,13 @@ services:
     volumes:
       - ./application.properties:/debezium/conf/application.properties
       - cdc_data:/debezium/data
+    command: ["bash", "-c", "/debezium/run.sh /debezium/conf/application.properties"]
+    restart: always
 
   # ============================
   # 5) KAFKA CONSUMER → FILE WRITER
   # ============================
-  kafka-consumer:
+  kafka_consumer:
     image: confluentinc/cp-kafka:7.5.0
     container_name: kafka_to_file
     depends_on:
@@ -107,8 +107,8 @@ services:
     restart: always
     volumes:
       - ./pagila-schema.sql:/docker-entrypoint-initdb.d/pagila-schema.sql
-      - ./cdc_output:/output  # Kafka consumer-dan gələn JSON faylı subscriber container-də
-      - ./load_actor.sh:/load_actor.sh 
+      - ./cdc_output:/output
+      - ./load_actor.sh:/load_actor.sh
 
   # ============================
   # 7) PGADMIN UI
